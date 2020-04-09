@@ -62,7 +62,7 @@ const FirefoxBrowserWsl2Linux = function (id, baseBrowserDecorator, args) {
             if (matches) {
                 browserProcessPid = parseInt(matches[1], 10);
             }
-        })
+        });
     }
 
     this.on('kill', function (done) {
@@ -77,8 +77,10 @@ const FirefoxBrowserWsl2Linux = function (id, baseBrowserDecorator, args) {
         }
 
         return process.nextTick(done);
-    })
+    });
 }
+
+FirefoxBrowserWsl2Linux.$inject = ['id', 'baseBrowserDecorator', 'args'];
 
 FirefoxBrowserWsl2Linux.prototype = {
     name: 'Firefox',
@@ -90,7 +92,6 @@ FirefoxBrowserWsl2Linux.prototype = {
         win32: getFirefoxExe('Mozilla Firefox')
     },
     ENV_CMD: 'FIREFOX_BIN'
-}
+};
 
-exports.FirefoxBrowserWsl2Linux = FirefoxBrowserWsl2Linux;
 module.exports = FirefoxBrowserWsl2Linux;
