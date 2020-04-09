@@ -6,6 +6,7 @@ var isWsl = require('is-wsl')
 var which = require('which')
 var { execSync } = require('child_process')
 var { StringDecoder } = require('string_decoder')
+const FirefoxBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux');
 
 var PREFS = [
   'user_pref("browser.shell.checkDefaultBrowser", false);',
@@ -335,5 +336,6 @@ module.exports = {
   'launcher:FirefoxAurora': ['type', FirefoxAuroraBrowser],
   'launcher:FirefoxAuroraHeadless': ['type', FirefoxAuroraHeadlessBrowser],
   'launcher:FirefoxNightly': ['type', FirefoxNightlyBrowser],
-  'launcher:FirefoxNightlyHeadless': ['type', FirefoxNightlyHeadlessBrowser]
+  'launcher:FirefoxNightlyHeadless': ['type', FirefoxNightlyHeadlessBrowser],
+  'launcher:FirefoxBrowserWsl2Linux': ['type', FirefoxBrowserWsl2Linux]
 }
