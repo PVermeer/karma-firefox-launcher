@@ -5,7 +5,7 @@ const { StringDecoder } = require('string_decoder');
 const { PREFS } = require('./prefs');
 const { getFirefoxWithFallbackOnOSX, getFirefoxExe } = require('./utils');
 
-const FirefoxBrowserWsl2Linux = function (_id, baseBrowserDecorator, args) {
+const FirefoxBrowserWsl2Linux = function (id, baseBrowserDecorator, args) {
     baseBrowserDecorator(this);
     let browserProcessPid;
 
