@@ -9,3 +9,5 @@ exports.PREFS = [
     'user_pref("browser.tabs.remote.autostart.2", false);',
     'user_pref("extensions.enabledScopes", 15);'
 ].join('\n')
+
+exports.HEADLESS = ['-headless', '--start-debugger-server 6000'];

@@ -1,6 +1,8 @@
 // @ts-check
 const { join } = require('path');
 const { existsSync } = require('fs');
+const { execSync } = require('child_process');
+const { HEADLESS } = require('./prefs');
 
 // Get all possible Program Files folders even on other drives
 // inspect the user's path to find other drives that may contain Program Files folders
@@ -32,7 +34,6 @@ const getAllPrefixes = function () {
     return result;
 }
 
-
 exports.getFirefoxWithFallbackOnOSX = function () {
     if (process.platform !== 'darwin') {
         return null;
@@ -48,15 +49,15 @@ exports.getFirefoxWithFallbackOnOSX = function () {
         bin = prefix + firefoxDirNames[i] + suffix
 
         if ('HOME' in process.env) {
-            homeBin = join(process.env.HOME, bin)
+            homeBin = join(process.env.HOME, bin);
 
             if (existsSync(homeBin)) {
-                return homeBin
+                return homeBin;
             }
         }
 
         if (existsSync(bin)) {
-            return bin
+            return bin;
         }
     }
 };
@@ -66,21 +67,21 @@ exports.getFirefoxWithFallbackOnOSX = function () {
 exports.getFirefoxExe = function (firefoxDirName) {
     // @ts-ignore
     if (process.platform !== 'win32' && process.platform !== 'win64') {
-        return null
+        return null;
     }
 
-    const firefoxDirNames = Array.prototype.slice.call(arguments)
+    const firefoxDirNames = Array.prototype.slice.call(arguments);
 
     for (const prefix of getAllPrefixes()) {
         for (const dir of firefoxDirNames) {
-            const candidate = join(prefix, dir, 'firefox.exe')
+            const candidate = join(prefix, dir, 'firefox.exe');
             if (existsSync(candidate)) {
-                return candidate
+                return candidate;
             }
         }
     }
 
-    return join('C:\\Program Files', firefoxDirNames[0], 'firefox.exe')
+    return join('C:\\Program Files', firefoxDirNames[0], 'firefox.exe');
 };
 
 exports.makeHeadlessVersion = function (Browser) {
@@ -90,7 +91,7 @@ exports.makeHeadlessVersion = function (Browser) {
         this._execCommand = function (command, args) {
             // --start-debugger-server ws:6000 can also be used, since remote debugging protocol also speaks WebSockets
             // https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/
-            execCommand.call(this, command, args.concat(['-headless', '--start-debugger-server 6000']))
+            execCommand.call(this, command, args.concat(HEADLESS))
         };
     }
 
@@ -100,3 +101,53 @@ exports.makeHeadlessVersion = function (Browser) {
     HeadlessBrowser.$inject = Browser.$inject;
     return HeadlessBrowser;
 };
+
+const getAllPrefixesWsl = function () {
+    const drives = [];
+    // Some folks configure their wsl.conf to mount Windows drives without the
+    // /mnt prefix (e.g. see https://nickjanetakis.com/blog/setting-up-docker-for-windows-and-wsl-to-work-flawlessly)
+    //
+    // In fact, they could configure this to be any number of things. So we
+    // take each path, convert it to a Windows path, check if it looks like
+    // it starts with a drive and then record that.
+    const re = /^([A-Z]):\\/i;
+    for (const pathElem of process.env.PATH.split(':')) {
+        if (existsSync(pathElem)) {
+            const windowsPath = execSync('wslpath -w "' + pathElem + '"').toString();
+            const matches = windowsPath.match(re);
+            if (matches !== null && drives.indexOf(matches[1]) === -1) {
+                drives.push(matches[1]);
+            }
+        }
+    }
+
+    const result = [];
+    // We don't have the PROGRAMFILES or PROGRAMFILES(X86) environment variables
+    // in WSL so we just hard code them.
+    const prefixes = ['Program Files', 'Program Files (x86)'];
+    for (const prefix of prefixes) {
+        for (const drive of drives) {
+            // We only have the drive, and only wslpath knows exactly what they map to
+            // in Linux, so we convert it back here.
+            const wslPath = execSync('wslpath "' + drive + ':\\' + prefix + '"').toString().trim();
+            result.push(wslPath);
+        }
+    }
+
+    return result;
+}
+
+exports.getFirefoxExeWsl = function (firefoxDirName) {
+    const firefoxDirNames = Array.prototype.slice.call(arguments);
+
+    for (const prefix of getAllPrefixesWsl()) {
+        for (const dir of firefoxDirNames) {
+            const candidate = join(prefix, dir, 'firefox.exe');
+            if (existsSync(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    return join('/mnt/c/Program Files/', firefoxDirNames[0], 'firefox.exe');
+}

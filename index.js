@@ -8,6 +8,8 @@ var { execSync } = require('child_process')
 var { StringDecoder } = require('string_decoder')
 const FirefoxBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux');
 const FirefoxHeadlessBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux-headless');
+const FirefoxBrowserWsl2Windows = require('./wsl2/browser-wsl2-windows');
+const FirefoxHeadlessBrowserWsl2Windows = require('./wsl2/browser-wsl2-windows-headless');
 
 var PREFS = [
   'user_pref("browser.shell.checkDefaultBrowser", false);',
@@ -341,5 +343,7 @@ module.exports = {
 
   // WSL 2
   'launcher:FirefoxWsl2Linux': ['type', FirefoxBrowserWsl2Linux],
-  'launcher:FirefoxHeadlessWsl2Linux': ['type', FirefoxHeadlessBrowserWsl2Linux]
+  'launcher:FirefoxHeadlessWsl2Linux': ['type', FirefoxHeadlessBrowserWsl2Linux],
+  'launcher:FirefoxWsl2Windows': ['type', FirefoxBrowserWsl2Windows],
+  'launcher:FirefoxHeadlessWsl2Windows': ['type', FirefoxHeadlessBrowserWsl2Windows]
 }
