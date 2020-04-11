@@ -4,7 +4,7 @@ var fs = require('fs')
 var path = require('path')
 var isWsl = require('is-wsl')
 var which = require('which')
-var { execSync } = require('child_process')
+var { execSync, exec, spawn } = require('child_process')
 var { StringDecoder } = require('string_decoder')
 const FirefoxBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux');
 const FirefoxHeadlessBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux-headless');
@@ -22,11 +22,6 @@ var PREFS = [
   'user_pref("browser.tabs.remote.autostart.2", false);',
   'user_pref("extensions.enabledScopes", 15);'
 ].join('\n')
-
-// Check if Firefox is installed on the WSL side and use that if it's available
-if (isWsl && which.sync('firefox', { nothrow: true })) {
-  isWsl = false
-}
 
 // Get all possible Program Files folders even on other drives
 // inspect the user's path to find other drives that may contain Program Files folders
@@ -163,13 +158,21 @@ var getFirefoxWithFallbackOnOSX = function () {
 }
 
 var makeHeadlessVersion = function (Browser) {
+
+  const headlessParams = ['-headless', '--start-debugger-server 6000'];
+
   var HeadlessBrowser = function () {
     Browser.apply(this, arguments)
-    var execCommand = this._execCommand
-    this._execCommand = function (command, args) {
-      // --start-debugger-server ws:6000 can also be used, since remote debugging protocol also speaks WebSockets
-      // https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/
-      execCommand.call(this, command, args.concat(['-headless', '--start-debugger-server 6000']))
+
+    if (isWsl) {
+      arguments[2].headless = headlessParams;
+    } else {
+      var execCommand = this._execCommand
+      this._execCommand = function (command, args) {
+        // --start-debugger-server ws:6000 can also be used, since remote debugging protocol also speaks WebSockets
+        // https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/
+        execCommand.call(this, command, args.concat(headlessParams))
+      }
     }
   }
 
@@ -183,6 +186,7 @@ var makeHeadlessVersion = function (Browser) {
 // https://developer.mozilla.org/en-US/docs/Command_Line_Options
 var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
+  let windowsUsed = false;
 
   var browserProcessPid
 
@@ -203,6 +207,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     var profilePath = args.profile || self._tempDir
     var flags = args.flags || []
     var extensionsDir
+    let runningProcess;
 
     if (Array.isArray(args.extensions)) {
       extensionsDir = path.resolve(profilePath, 'extensions')
@@ -215,8 +220,6 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     }
 
     fs.writeFileSync(path.join(profilePath, 'prefs.js'), this._getPrefs(args.prefs))
-    var translatedProfilePath =
-      isWsl ? execSync('wslpath -w ' + profilePath).toString().trim() : profilePath
 
     // If we are using the launcher process, make it print the child process ID
     // to stderr so we can capture it.
@@ -224,12 +227,86 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     // https://wiki.mozilla.org/Platform/Integration/InjectEject/Launcher_Process/
     process.env.MOZ_DEBUG_BROWSER_PAUSE = 0
     browserProcessPid = undefined
-    self._execCommand(
-      command,
-      [url, '-profile', translatedProfilePath, '-no-remote', '-wait-for-browser'].concat(flags)
-    )
 
-    self._process.stderr.on('data', errBuff => {
+    function useWindowsWSL() {
+
+      console.log('WSL: using Windows');
+      windowsUsed = true;
+
+      const translatedProfilePath = execSync('wslpath -w ' + profilePath).toString().trim();
+
+      // Translate command to a windows path to make it possisible to get the pid.
+      const commandPrepare = command.split('/').slice(0, -1).join('/').replace(/\s/g, '\\ ');
+      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim();
+      const commandTranslated = commandTranslatePath + '\\firefox.exe';
+
+      /*
+      Custom launch implementation that mimics firefox docs via WSL interop:
+      Start firefox on windows and send process id back via stderr,
+      to keep inline with the mozilla strategy.
+      */
+      self._execCommand = spawn('/bin/bash', ['-c',
+        `
+        processString=$(wmic.exe process call create "${ commandTranslated}\
+          ${ url}\
+          -profile ${ translatedProfilePath}\
+          -no-remote\
+          -wait-for-browser\
+          ${ args.headless ? args.headless.join(' ') + '\\' : ''}
+          ${ flags.join(' ')}\
+        ");
+
+        while IFS= read -r line; do
+          if [[ $line == *"ProcessId = "* ]]; then
+      
+            removePrefix=\${line#*ProcessId = }
+            removeSuffix=\${removePrefix%;*}
+            pid=$removeSuffix
+    
+            debugString="BROWSERBROWSERBROWSERBROWSER debug me @ $pid"
+            echo >&2 "$debugString"
+            exit 0
+      
+          fi
+        done < <(printf '%s\n' "$processString")
+        exit 0;
+        `],
+      );
+
+      runningProcess = self._execCommand;
+
+    }
+
+    function useNormal() {
+      self._execCommand(
+        command,
+        [url, '-profile', profilePath, '-no-remote', '-wait-for-browser']
+          .concat(flags, args.headless || [])
+      );
+
+      runningProcess = self._process;
+    }
+
+    if (isWsl) {
+      if (!which.sync('firefox', { nothrow: true })) {
+        // If Firefox is not installed on Linux side then always use windows.
+        useWindowsWSL();
+      } else {
+        if (!args.headless && !process.env.DISPLAY) {
+          // Firefox checks for the DISPLAY env variable to see if there is a gui.
+          // If not in headless mode it will fail so use windows in that case.
+          useWindowsWSL();
+        } else {
+          // Revert back to Linux command (this is for all of the launchers 'firefox', so hardcoded for now).
+          command = 'firefox';
+          useNormal();
+        }
+      }
+    } else {
+      useNormal();
+    }
+
+    runningProcess.stderr.on('data', errBuff => {
       var errString
       if (typeof errBuff === 'string') {
         errString = errBuff
@@ -248,7 +325,9 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     // If we have a separate browser process PID, try killing it.
     if (browserProcessPid) {
       try {
-        process.kill(browserProcessPid)
+        windowsUsed ?
+          exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`) :
+          process.kill(browserProcessPid);
       } catch (e) {
         // Ignore failure -- the browser process might have already been
         // terminated.
