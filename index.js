@@ -6,10 +6,6 @@ var isWsl = require('is-wsl')
 var which = require('which')
 var { execSync, exec, spawn } = require('child_process')
 var { StringDecoder } = require('string_decoder')
-const FirefoxBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux');
-const FirefoxHeadlessBrowserWsl2Linux = require('./wsl2/browser-wsl2-linux-headless');
-const FirefoxBrowserWsl2Windows = require('./wsl2/browser-wsl2-windows');
-const FirefoxHeadlessBrowserWsl2Windows = require('./wsl2/browser-wsl2-windows-headless');
 
 var PREFS = [
   'user_pref("browser.shell.checkDefaultBrowser", false);',
@@ -158,14 +154,13 @@ var getFirefoxWithFallbackOnOSX = function () {
 }
 
 var makeHeadlessVersion = function (Browser) {
-
-  const headlessParams = ['-headless', '--start-debugger-server 6000'];
+  const headlessParams = ['-headless', '--start-debugger-server 6000']
 
   var HeadlessBrowser = function () {
     Browser.apply(this, arguments)
 
     if (isWsl) {
-      arguments[2].headless = headlessParams;
+      arguments[2].headless = headlessParams
     } else {
       var execCommand = this._execCommand
       this._execCommand = function (command, args) {
@@ -186,7 +181,7 @@ var makeHeadlessVersion = function (Browser) {
 // https://developer.mozilla.org/en-US/docs/Command_Line_Options
 var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
-  let windowsUsed = false;
+  let windowsUsed = false
 
   var browserProcessPid
 
@@ -207,7 +202,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     var profilePath = args.profile || self._tempDir
     var flags = args.flags || []
     var extensionsDir
-    let runningProcess;
+    let runningProcess
 
     if (Array.isArray(args.extensions)) {
       extensionsDir = path.resolve(profilePath, 'extensions')
@@ -228,17 +223,16 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     process.env.MOZ_DEBUG_BROWSER_PAUSE = 0
     browserProcessPid = undefined
 
-    function useWindowsWSL() {
+    function useWindowsWSL () {
+      console.log('WSL: using Windows')
+      windowsUsed = true
 
-      console.log('WSL: using Windows');
-      windowsUsed = true;
-
-      const translatedProfilePath = execSync('wslpath -w ' + profilePath).toString().trim();
+      const translatedProfilePath = execSync('wslpath -w ' + profilePath).toString().trim()
 
       // Translate command to a windows path to make it possisible to get the pid.
-      const commandPrepare = command.split('/').slice(0, -1).join('/').replace(/\s/g, '\\ ');
-      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim();
-      const commandTranslated = commandTranslatePath + '\\firefox.exe';
+      const commandPrepare = command.split('/').slice(0, -1).join('/').replace(/\s/g, '\\ ')
+      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
+      const commandTranslated = commandTranslatePath + '\\firefox.exe'
 
       /*
       Custom launch implementation that mimics firefox docs via WSL interop:
@@ -247,13 +241,13 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
       */
       self._execCommand = spawn('/bin/bash', ['-c',
         `
-        processString=$(wmic.exe process call create "${ commandTranslated}\
-          ${ url}\
-          -profile ${ translatedProfilePath}\
+        processString=$(wmic.exe process call create "${commandTranslated}\
+          ${url}\
+          -profile ${translatedProfilePath}\
           -no-remote\
           -wait-for-browser\
-          ${ args.headless ? args.headless.join(' ') + '\\' : ''}
-          ${ flags.join(' ')}\
+          ${args.headless ? args.headless.join(' ') + '\\' : ''}
+          ${flags.join(' ')}\
         ");
 
         while IFS= read -r line; do
@@ -270,40 +264,39 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
           fi
         done < <(printf '%s\n' "$processString")
         exit 0;
-        `],
-      );
+        `]
+      )
 
-      runningProcess = self._execCommand;
-
+      runningProcess = self._execCommand
     }
 
-    function useNormal() {
+    function useNormal () {
       self._execCommand(
         command,
         [url, '-profile', profilePath, '-no-remote', '-wait-for-browser']
           .concat(flags, args.headless || [])
-      );
+      )
 
-      runningProcess = self._process;
+      runningProcess = self._process
     }
 
     if (isWsl) {
       if (!which.sync('firefox', { nothrow: true })) {
         // If Firefox is not installed on Linux side then always use windows.
-        useWindowsWSL();
+        useWindowsWSL()
       } else {
         if (!args.headless && !process.env.DISPLAY) {
           // Firefox checks for the DISPLAY env variable to see if there is a gui.
           // If not in headless mode it will fail so use windows in that case.
-          useWindowsWSL();
+          useWindowsWSL()
         } else {
           // Revert back to Linux command (this is for all of the launchers 'firefox', so hardcoded for now).
-          command = 'firefox';
-          useNormal();
+          command = 'firefox'
+          useNormal()
         }
       }
     } else {
-      useNormal();
+      useNormal()
     }
 
     runningProcess.stderr.on('data', errBuff => {
@@ -325,9 +318,9 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     // If we have a separate browser process PID, try killing it.
     if (browserProcessPid) {
       try {
-        windowsUsed ?
-          exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`) :
-          process.kill(browserProcessPid);
+        windowsUsed
+          ? exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
+          : process.kill(browserProcessPid)
       } catch (e) {
         // Ignore failure -- the browser process might have already been
         // terminated.
@@ -418,11 +411,5 @@ module.exports = {
   'launcher:FirefoxAurora': ['type', FirefoxAuroraBrowser],
   'launcher:FirefoxAuroraHeadless': ['type', FirefoxAuroraHeadlessBrowser],
   'launcher:FirefoxNightly': ['type', FirefoxNightlyBrowser],
-  'launcher:FirefoxNightlyHeadless': ['type', FirefoxNightlyHeadlessBrowser],
-
-  // WSL 2
-  'launcher:FirefoxWsl2Linux': ['type', FirefoxBrowserWsl2Linux],
-  'launcher:FirefoxHeadlessWsl2Linux': ['type', FirefoxHeadlessBrowserWsl2Linux],
-  'launcher:FirefoxWsl2Windows': ['type', FirefoxBrowserWsl2Windows],
-  'launcher:FirefoxHeadlessWsl2Windows': ['type', FirefoxHeadlessBrowserWsl2Windows]
+  'launcher:FirefoxNightlyHeadless': ['type', FirefoxNightlyHeadlessBrowser]
 }
