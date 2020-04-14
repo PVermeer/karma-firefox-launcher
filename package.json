@@ -53,6 +53,7 @@
   ],
   "dependencies": {
     "is-wsl": "^2.1.1",
+    "rimraf": "^3.0.2",
     "which": "^2.0.1"
   }
 }

@@ -5,8 +5,9 @@ var fs = require('fs')
 var path = require('path')
 var isWsl = require('is-wsl')
 var which = require('which')
-var { execSync, exec, spawn } = require('child_process')
+var { execSync, spawn } = require('child_process')
 var { StringDecoder } = require('string_decoder')
+const rimraf = require('rimraf')
 
 var PREFS = [
   'user_pref("browser.shell.checkDefaultBrowser", false);',
@@ -19,6 +20,16 @@ var PREFS = [
   'user_pref("browser.tabs.remote.autostart.2", false);',
   'user_pref("extensions.enabledScopes", 15);'
 ].join('\n')
+
+function escapePath(path) {
+  return path
+    .replace(/(\r\n|\r|\n)/gm, '')
+    .trim()
+    .replace(/\\/g, '\\\\')
+    .replace(/\s/g, '\\ ')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+}
 
 function getBin(commands) {
   // Don't run these checks on win32
@@ -199,6 +210,8 @@ var makeHeadlessVersion = function (Browser) {
 // https://developer.mozilla.org/en-US/docs/Command_Line_Options
 var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
+  var profilePath = args.profile || this._tempDir
+  let runningProcess
   let windowsUsed = false
   let browserProcessPid
 
@@ -215,22 +228,8 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
 
   this._start = (url) => {
     var command = this._getCommand()
-    var profilePath = args.profile || this._tempDir
     var flags = args.flags || []
     var extensionsDir
-    let runningProcess
-
-    if (Array.isArray(args.extensions)) {
-      extensionsDir = path.resolve(profilePath, 'extensions')
-      fs.mkdirSync(extensionsDir)
-      args.extensions.forEach(function (ext) {
-        var extBuffer = fs.readFileSync(ext)
-        var copyDestination = path.resolve(extensionsDir, path.basename(ext))
-        fs.writeFileSync(copyDestination, extBuffer)
-      })
-    }
-
-    fs.writeFileSync(path.join(profilePath, 'prefs.js'), this._getPrefs(args.prefs))
 
     // If we are using the launcher process, make it print the child process ID
     // to stderr so we can capture it.
@@ -239,21 +238,49 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     process.env.MOZ_DEBUG_BROWSER_PAUSE = 0
     browserProcessPid = undefined
 
+    function setExtensions() {
+      if (Array.isArray(args.extensions)) {
+        extensionsDir = path.resolve(profilePath, 'extensions')
+        fs.mkdirSync(extensionsDir)
+        fs.writeFileSync(extensionsDir + '/' + 'user.js', this._getPrefs(args.prefs))
+        args.extensions.forEach(function (ext) {
+          var extBuffer = fs.readFileSync(ext)
+          var copyDestination = path.resolve(extensionsDir, path.basename(ext))
+          fs.writeFileSync(copyDestination, extBuffer)
+        })
+      }
+    }
+
     const useWindowsWSL = () => {
       console.log('WSL: using Windows')
       command = this.DEFAULT_CMD.win32
       windowsUsed = true
 
-      const translatedProfilePath = execSync('wslpath -w ' + profilePath).toString().trim()
+      /*
+      Translate temp path for profile to be able to write to the path while
+      firefox gets the windows path.
+      */
+      const getWindowsTempPath = execSync('cmd.exe /u /q /c ECHO %Temp%', { encoding: 'utf16le' })
+        .replace(/(\r\n|\r|\n)/gm, '')
+        .trim()
+      const windowsProfilePath = `${getWindowsTempPath}\\karma-${this.id.toString()}`
+      profilePath = execSync('wslpath -a ' + escapePath(windowsProfilePath)).toString().trim()
 
-      // Translate command to a windows path to make it possisible to get the pid.
-      let commandPrepare = this.DEFAULT_CMD.win32.split('/')
-      const executable = commandPrepare.pop()
-      commandPrepare = commandPrepare.join('/')
-        .replace(/\s/g, '\\ ')
-        .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)')
-      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
+      // Create temp dir
+      try {
+        fs.mkdirSync(profilePath)
+        fs.writeFileSync(profilePath + '/' + 'user.js', this._getPrefs(args.prefs))
+      } catch (e) {
+        console.warn(`Failed to create a temp dir at ${profilePath}`)
+      }
+
+      setExtensions()
+
+      // Translate the command path to a windows path to make it possible to get the pid.
+      const commandPreparePathArray = this.DEFAULT_CMD.win32.split('/')
+      const executable = commandPreparePathArray.pop()
+      const commandPreparePath = escapePath(commandPreparePathArray.join('/'))
+      const commandTranslatePath = execSync('wslpath -w ' + commandPreparePath).toString().trim()
       const commandTranslated = commandTranslatePath + '\\' + executable
 
       /*
@@ -265,7 +292,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
         `
         processString=$(wmic.exe process call create "${commandTranslated}\
           ${url}\
-          -profile ${translatedProfilePath}\
+          -profile ${windowsProfilePath}\
           -no-remote\
           -wait-for-browser\
           ${args.headless ? args.headless.join(' ') + '\\' : ''}
@@ -293,6 +320,10 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     }
 
     const useNormal = () => {
+      fs.writeFileSync(path.join(profilePath, 'prefs.js'), this._getPrefs(args.prefs))
+
+      setExtensions()
+
       this._execCommand(
         command,
         [url, '-profile', profilePath, '-no-remote', '-wait-for-browser']
@@ -340,14 +371,26 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     // If we have a separate browser process PID, try killing it.
     if (browserProcessPid) {
       try {
-        windowsUsed
-          ? exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
-          : process.kill(browserProcessPid)
+        if (windowsUsed) {
+          // Clean up
+          execSync(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
+          console.log(profilePath)
+          profilePath ? rimraf.sync(profilePath) : void 0
+          rimraf.sync(this._tempDir)
+        } else {
+          // Kill the normal process, Karma should pick up the cleanup
+          process.kill(browserProcessPid)
+        }
       } catch (e) {
         // Ignore failure -- the browser process might have already been
         // terminated.
       }
     }
+
+    // If process is still running, kill it.
+    try {
+      runningProcess ? runningProcess.kill() : void 0
+    } catch (_) { }
 
     return process.nextTick(done)
   })
