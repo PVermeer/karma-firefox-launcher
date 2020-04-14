@@ -12,7 +12,7 @@ module.exports = function (config) {
     colors: true,
     logLevel: config.LOG_INFO,
     autoWatch: false,
-    browsers: ['Firefox', 'FirefoxHeadless'],
+    browsers: ['FirefoxHeadless'],
     concurrency: Infinity,
     plugins: [
       require.resolve('./'),

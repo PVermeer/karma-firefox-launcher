@@ -1,3 +1,4 @@
+/* eslint-disable space-before-function-paren */
 'use strict'
 
 var fs = require('fs')
@@ -18,6 +19,23 @@ var PREFS = [
   'user_pref("browser.tabs.remote.autostart.2", false);',
   'user_pref("extensions.enabledScopes", 15);'
 ].join('\n')
+
+function getBin(commands) {
+  // Don't run these checks on win32
+  if (process.platform !== 'linux') {
+    return null
+  }
+  var bin, i
+  for (i = 0; i < commands.length; i++) {
+    try {
+      if (which.sync(commands[i])) {
+        bin = commands[i]
+        break
+      }
+    } catch (e) { }
+  }
+  return bin
+}
 
 // Get all possible Program Files folders even on other drives
 // inspect the user's path to find other drives that may contain Program Files folders
@@ -182,8 +200,7 @@ var makeHeadlessVersion = function (Browser) {
 var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
   let windowsUsed = false
-
-  var browserProcessPid
+  let browserProcessPid
 
   this._getPrefs = function (prefs) {
     if (typeof prefs !== 'object') {
@@ -196,10 +213,9 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     return result
   }
 
-  this._start = function (url) {
-    var self = this
+  this._start = (url) => {
     var command = this._getCommand()
-    var profilePath = args.profile || self._tempDir
+    var profilePath = args.profile || this._tempDir
     var flags = args.flags || []
     var extensionsDir
     let runningProcess
@@ -223,23 +239,29 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     process.env.MOZ_DEBUG_BROWSER_PAUSE = 0
     browserProcessPid = undefined
 
-    function useWindowsWSL () {
+    const useWindowsWSL = () => {
       console.log('WSL: using Windows')
+      command = this.DEFAULT_CMD.win32
       windowsUsed = true
 
       const translatedProfilePath = execSync('wslpath -w ' + profilePath).toString().trim()
 
       // Translate command to a windows path to make it possisible to get the pid.
-      const commandPrepare = command.split('/').slice(0, -1).join('/').replace(/\s/g, '\\ ')
+      let commandPrepare = this.DEFAULT_CMD.win32.split('/')
+      const executable = commandPrepare.pop()
+      commandPrepare = commandPrepare.join('/')
+        .replace(/\s/g, '\\ ')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)')
       const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
-      const commandTranslated = commandTranslatePath + '\\firefox.exe'
+      const commandTranslated = commandTranslatePath + '\\' + executable
 
       /*
       Custom launch implementation that mimics firefox docs via WSL interop:
       Start firefox on windows and send process id back via stderr,
       to keep inline with the mozilla strategy.
       */
-      self._execCommand = spawn('/bin/bash', ['-c',
+      this._execCommand = spawn('/bin/bash', ['-c',
         `
         processString=$(wmic.exe process call create "${commandTranslated}\
           ${url}\
@@ -267,21 +289,21 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
         `]
       )
 
-      runningProcess = self._execCommand
+      runningProcess = this._execCommand
     }
 
-    function useNormal () {
-      self._execCommand(
+    const useNormal = () => {
+      this._execCommand(
         command,
         [url, '-profile', profilePath, '-no-remote', '-wait-for-browser']
           .concat(flags, args.headless || [])
       )
 
-      runningProcess = self._process
+      runningProcess = this._process
     }
 
     if (isWsl) {
-      if (!which.sync('firefox', { nothrow: true })) {
+      if (!this.DEFAULT_CMD.linux || !which.sync(this.DEFAULT_CMD.linux, { nothrow: true })) {
         // If Firefox is not installed on Linux side then always use windows.
         useWindowsWSL()
       } else {
@@ -290,8 +312,8 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
           // If not in headless mode it will fail so use windows in that case.
           useWindowsWSL()
         } else {
-          // Revert back to Linux command (this is for all of the launchers 'firefox', so hardcoded for now).
-          command = 'firefox'
+          // Revert back to Linux command.
+          command = this.DEFAULT_CMD.linux
           useNormal()
         }
       }
@@ -335,10 +357,10 @@ FirefoxBrowser.prototype = {
   name: 'Firefox',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getFirefoxExeWsl('Mozilla Firefox') : 'firefox',
+    linux: getBin(['firefox']),
     freebsd: 'firefox',
     darwin: getFirefoxWithFallbackOnOSX('Firefox'),
-    win32: getFirefoxExe('Mozilla Firefox')
+    win32: isWsl ? getFirefoxExeWsl('Mozilla Firefox') : getFirefoxExe('Mozilla Firefox')
   },
   ENV_CMD: 'FIREFOX_BIN'
 }
@@ -354,9 +376,9 @@ var FirefoxDeveloperBrowser = function () {
 FirefoxDeveloperBrowser.prototype = {
   name: 'FirefoxDeveloper',
   DEFAULT_CMD: {
-    linux: isWsl ? getFirefoxExeWsl('Firefox Developer Edition') : 'firefox',
+    linux: getBin(['firefox']),
     darwin: getFirefoxWithFallbackOnOSX('FirefoxDeveloperEdition', 'FirefoxAurora'),
-    win32: getFirefoxExe('Firefox Developer Edition')
+    win32: isWsl ? getFirefoxExeWsl('Firefox Developer Edition') : getFirefoxExe('Firefox Developer Edition')
   },
   ENV_CMD: 'FIREFOX_DEVELOPER_BIN'
 }
@@ -372,9 +394,9 @@ var FirefoxAuroraBrowser = function () {
 FirefoxAuroraBrowser.prototype = {
   name: 'FirefoxAurora',
   DEFAULT_CMD: {
-    linux: isWsl ? getFirefoxExeWsl('Aurora') : 'firefox',
+    linux: getBin(['firefox']),
     darwin: getFirefoxWithFallbackOnOSX('FirefoxAurora'),
-    win32: getFirefoxExe('Aurora')
+    win32: isWsl ? getFirefoxExeWsl('Aurora') : getFirefoxExe('Aurora')
   },
   ENV_CMD: 'FIREFOX_AURORA_BIN'
 }
@@ -391,9 +413,9 @@ FirefoxNightlyBrowser.prototype = {
   name: 'FirefoxNightly',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getFirefoxExeWsl('Nightly', 'Firefox Nightly') : 'firefox',
+    linux: getBin(['firefox']),
     darwin: getFirefoxWithFallbackOnOSX('FirefoxNightly', 'Firefox Nightly'),
-    win32: getFirefoxExe('Nightly', 'Firefox Nightly')
+    win32: isWsl ? getFirefoxExeWsl('Nightly', 'Firefox Nightly') : getFirefoxExe('Nightly', 'Firefox Nightly')
   },
   ENV_CMD: 'FIREFOX_NIGHTLY_BIN'
 }
