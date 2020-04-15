@@ -22,11 +22,11 @@
   "author": "Vojta Jina <vojta.jina@gmail.com>",
   "license": "MIT",
   "devDependencies": {
-    "karma": "^4.2.0",
-    "karma-mocha": "^1.3.0",
-    "mocha": "^6.2.0",
-    "standard": "^13.1.0",
-    "standard-version": "^7.0.0"
+    "karma": "^5.0.1",
+    "karma-mocha": "^2.0.0",
+    "mocha": "^7.1.1",
+    "standard": "^14.3.3",
+    "standard-version": "^7.1.0"
   },
   "contributors": [
     "Alex Zaslavsky <alex.zaslavsky.1990@gmail.com>",
@@ -54,6 +54,6 @@
   "dependencies": {
     "is-wsl": "^2.1.1",
     "rimraf": "^3.0.2",
-    "which": "^2.0.1"
+    "which": "^2.0.2"
   }
 }

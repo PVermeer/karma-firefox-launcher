@@ -257,8 +257,8 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
       windowsUsed = true
 
       /*
-      Translate temp path for profile to be able to write to the path while
-      firefox gets the windows path.
+      Translate temp path for profile to be able to write to the path on Linux
+      while Firefox itself gets the windows path.
       */
       const getWindowsTempPath = execSync('cmd.exe /u /q /c ECHO %Temp%', { encoding: 'utf16le' })
         .replace(/(\r\n|\r|\n)/gm, '')
@@ -374,8 +374,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
         if (windowsUsed) {
           // Clean up
           execSync(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
-          console.log(profilePath)
-          profilePath ? rimraf.sync(profilePath) : void 0
+          rimraf.sync(profilePath)
           rimraf.sync(this._tempDir)
         } else {
           // Kill the normal process, Karma should pick up the cleanup
@@ -389,7 +388,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
 
     // If process is still running, kill it.
     try {
-      runningProcess ? runningProcess.kill() : void 0
+      runningProcess.kill()
     } catch (_) { }
 
     return process.nextTick(done)
