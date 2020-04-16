@@ -320,7 +320,7 @@ var FirefoxBrowser = function (id, baseBrowserDecorator, args) {
     }
 
     const useNormal = () => {
-      fs.writeFileSync(path.join(profilePath, 'prefs.js'), this._getPrefs(args.prefs))
+      fs.writeFileSync(path.join(profilePath, 'user.js'), this._getPrefs(args.prefs))
 
       setExtensions()
 
