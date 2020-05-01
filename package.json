@@ -52,7 +52,7 @@
     "Žilvinas Urbonas <zilvinas.urbon@gmail.com>"
   ],
   "dependencies": {
-    "is-wsl": "^2.1.1",
+    "is-wsl": "github:pvermeer/is-wsl#feat-check-for-docker",
     "rimraf": "^3.0.2",
     "which": "^2.0.2"
   }
